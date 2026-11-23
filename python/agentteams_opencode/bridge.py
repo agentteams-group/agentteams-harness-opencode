@@ -18,6 +18,7 @@ from worker_handoff import recovery_scanned
 from runtime_observability import event as log
 
 from .config import load
+from .prompts import prepare as prepare_prompts
 
 
 class Bridge:
@@ -73,7 +74,7 @@ class Bridge:
         return result[:2] if result else None
 
     def run_native(self, text, identity, source=None, notification=None, *, check=False):
-        instructions = "\n\n".join((self.home / name).read_text() for name in ("AGENTS.md", "SOUL.md", "IDENTITY.md") if (self.home / name).is_file())
+        instructions = prepare_prompts(self.record, self.home, Path(os.environ["AGENTTEAMS_PLUGIN_DIR"]))
         request = {**self.native, "home": str(self.home), "directory": str(self.workspace), "identity": identity,
                    "text": text, "instructions": instructions, "sources": [],
                    "allowShell": os.getenv("AGENTTEAMS_YOLO", "").lower() in {"1", "true"}}

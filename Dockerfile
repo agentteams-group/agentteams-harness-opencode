@@ -24,13 +24,14 @@ COPY src/ src/
 COPY pyproject.toml ./
 COPY python/ python/
 RUN python3 -m venv /opt/venv/opencode \
-    && /opt/venv/opencode/bin/pip install --no-cache-dir . \
+    && /opt/venv/opencode/bin/pip install --no-cache-dir . -r /opt/agentteams/scripts/lib/telemetry/requirements.txt \
     && chmod +x /opt/agentteams/scripts/lib/mc-wrapper.sh \
     && ln -s /opt/agentteams/scripts/lib/mc-wrapper.sh /usr/local/bin/mc
 COPY scripts/entrypoint.sh /opt/agentteams/entrypoint.sh
 ENV PATH="/opt/venv/opencode/bin:${PATH}" \
     TEAMHARNESS_PYTHON=/opt/venv/opencode/bin/python3 \
     PYTHONPATH=/opt/agentteams/scripts/lib:/opt/agentteams/transport \
-    OPENCODE_HARNESS_DIR=/opt/agentteams/opencode
+    OPENCODE_HARNESS_DIR=/opt/agentteams/opencode \
+    AGENTTEAMS_OTEL_RUNTIME=opencode
 EXPOSE 8088
 ENTRYPOINT ["/usr/bin/tini", "--", "bash", "/opt/agentteams/entrypoint.sh"]

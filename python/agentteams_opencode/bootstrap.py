@@ -20,8 +20,6 @@ def restore(home):
     for name in ("AGENTS.md", "SOUL.md", "IDENTITY.md"):
         if name in keys:
             subprocess.run(["mc", "cp", remote + "/" + name, str(home / name)], check=True, stdout=subprocess.DEVNULL)
-    if not (home / "AGENTS.md").is_file():
-        raise ValueError("Projected role instructions are missing")
     if "skills/" in keys:
         subprocess.run(["mc", "mirror", remote + "/skills/", str(home / "skills") + "/", "--overwrite"],
                        check=True, stdout=subprocess.DEVNULL)
