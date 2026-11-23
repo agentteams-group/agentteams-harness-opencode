@@ -85,11 +85,14 @@ class Bridge:
             request["event"] = {"room_id": source["room_id"], "event_id": source["event_id"],
                                 "sender": source["input"]["sender"], "meta": {"teamharness_coordination": notification} if notification else {}}
         elif notification:
-            request["event"] = {"event_id": "recovery", "meta": {"teamharness_coordination": notification}}
+            request["event"] = {"event_id": "recovery", "room_id": notification.get("room_id"),
+                                "meta": {"teamharness_coordination": notification}}
         command = [os.getenv("OPENCODE_BUN", "bun"), str(Path(os.environ["OPENCODE_HARNESS_DIR"]) / "src/driver.ts")]
         if check:
             command.append("--check")
-        log("inference.begin", runtime="opencode", task_id=identity.get("task_id"), event_id=(source or {}).get("event_id"))
+        started = time.monotonic()
+        if not check:
+            log("inference.begin", runtime="opencode", task_id=identity.get("task_id"), event_id=(source or {}).get("event_id"))
         # The child and its native shell children share a process group. A
         # forced stop fences and terminates all of them, including on shutdown.
         with tempfile.TemporaryFile(mode="w+") as output:
@@ -109,7 +112,9 @@ class Bridge:
                         else:
                             task = self.recovery.current(identity["task_id"], identity["team_id"])
                             execution = (task or {}).get("execution", {})
-                            if execution.get("state") not in {"active", "released"} or any(execution.get(k) != identity[k] for k in ("generation", "instance_id", "process_id")):
+                            # begin_tools deliberately fences other admission
+                            # until this same native executor records its result.
+                            if execution.get("state") not in {"active", "needs_verification", "released"} or any(execution.get(k) != identity[k] for k in ("generation", "instance_id", "process_id")):
                                 raise RecoveryConflict("Native Task execution was replaced")
                 if child.returncode:
                     raise RuntimeError("OpenCode native process failed")
@@ -123,6 +128,9 @@ class Bridge:
                     except subprocess.TimeoutExpired:
                         os.killpg(child.pid, signal.SIGKILL)
                         child.wait()
+                if not check:
+                    log("inference.end", runtime="opencode", task_id=identity.get("task_id"),
+                        exit_code=child.returncode, duration_ms=round((time.monotonic() - started) * 1000))
 
     def deliver(self, identity, room, text, saved):
         task = bool(identity.get("task_id"))
@@ -160,7 +168,7 @@ class Bridge:
                 raise RecoveryConflict("OpenCode requires the public task/v1 protocol")
             source = next((row for row in sources if row.get("work", {}).get("task_id") == task["task_id"] and row["room_id"] == task["room_id"]), None)
             notification = {"kind": "task_assigned", "task_id": task["task_id"], "main_task_id": task["main_task_id"],
-                            "project_id": task.get("project_id", ""), "delivery_id": task["notifyTxn"]}
+                            "project_id": task.get("project_id", ""), "delivery_id": task["notifyTxn"], "room_id": task["room_id"]}
             self.attempted.add(key)
             try:
                 result = self.run_native(self.recovery.resume_text({**task, "team_id": entry["team_id"], "spec": claimed["spec"]}), identity, source, notification)

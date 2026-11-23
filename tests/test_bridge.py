@@ -1,5 +1,9 @@
 import unittest
 from unittest.mock import Mock, patch
+import json
+import os
+from pathlib import Path
+import tempfile
 
 from agentteams_opencode.bridge import Bridge
 
@@ -45,7 +49,30 @@ class DeliveryTests(unittest.TestCase):
         arguments = bridge.run_native.call_args.args
         self.assertIsNone(arguments[2])
         self.assertEqual(arguments[3]["task_id"], "node-1")
+        self.assertEqual(arguments[3]["room_id"], "!room:test")
         bridge.deliver.assert_called_once()
+
+    def test_live_native_tool_may_finish_its_current_unconfirmed_operation(self):
+        bridge = self.bridge()
+        bridge.record, bridge.native = {}, {"role": "worker"}
+        bridge.stop = Mock()
+        bridge.stop.wait.return_value = False
+        identity = {"task_id": "node-1", "team_id": "team-1", "generation": 1,
+                    "instance_id": "instance", "process_id": "process"}
+        bridge.recovery.current.return_value = {"execution": {**identity, "state": "needs_verification"}}
+        child = Mock(returncode=0)
+        child.poll.side_effect = [None, 0, 0]
+        def spawn(*args, **kwargs):
+            kwargs['stdout'].write(json.dumps({"answer": "saved", "phaseComplete": True}))
+            return child
+        with tempfile.TemporaryDirectory() as folder:
+            bridge.home = bridge.workspace = Path(folder)
+            with patch.dict(os.environ, {"AGENTTEAMS_PLUGIN_DIR": folder, "OPENCODE_HARNESS_DIR": folder}), \
+                 patch('agentteams_opencode.bridge.prepare_prompts', return_value=''), \
+                 patch('agentteams_opencode.bridge.subprocess.Popen', side_effect=spawn), \
+                 patch('agentteams_opencode.bridge.log'):
+                self.assertEqual(bridge.run_native('finish this tool', identity)['answer'], 'saved')
+        child.wait.assert_not_called()
 
 
 if __name__ == "__main__":
