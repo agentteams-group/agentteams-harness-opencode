@@ -1,0 +1,40 @@
+name: Build OpenCode candidate image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CORE_REF: 5cfff76cc474d503ffd816e12af1a43e9d2e446a
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: agentscope-ai/AgentTeams
+          ref: ${{ env.CORE_REF }}
+          path: core
+      - run: git -C core submodule update --init deepseek-harness
+      - uses: docker/setup-buildx-action@v3
+      - run: make -C core build-agentteams-controller LOCAL_CONTROLLER=agentteams/controller:opencode
+      - run: >-
+          docker build --platform '${{ matrix.platform }}' --build-context at=./core
+          --build-arg AGENTTEAMS_CONTROLLER_IMAGE=agentteams/controller:opencode
+          --label org.opencontainers.image.revision=${{ github.sha }}
+          -t agentteams/opencode:candidate .
+      - run: docker run --rm --entrypoint python3 agentteams/opencode:candidate -c 'import agentteams_opencode.bridge'
+      - run: >-
+          docker run --rm --entrypoint bun agentteams/opencode:candidate
+          -e 'import { OpenCode } from "@opencode/sdk";
+          const host=await OpenCode.create({database:{path:":memory:"},models:{fetch:false},config:{project:false,content:"{}"}});
+          await host.close();'
