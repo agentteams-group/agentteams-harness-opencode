@@ -1,5 +1,6 @@
 import { Plugin } from "@opencode/plugin"
 import { Guard, type Rpc } from "./protocol"
+import type { Telemetry } from "./telemetry"
 
 export const TASK = "agentteams_task"
 const FILE_TOOLS = new Set(["read", "write", "edit", "glob", "grep", "shell", "skill"])
@@ -38,6 +39,7 @@ export function createPlugin(options: {
   rpc: Rpc; context: Record<string, any>; schema: any; identity: Record<string, any>
   instructions: string; directory: string; binding: Binding
   beforeModel?: (sessionID: string) => Promise<void>
+  telemetry?: Telemetry
 }) {
   const { rpc, context, schema, identity, instructions, directory, binding } = options
   const guard = new Guard(rpc, identity, context)
@@ -45,6 +47,9 @@ export function createPlugin(options: {
   return Plugin.define({
     id: "agentteams.opencode",
     async setup(ctx) {
+      await ctx.aisdk.hook("language", event => {
+        if (event.language && options.telemetry) event.language = options.telemetry.language(event.language)
+      })
       await ctx.tool.transform(editor => {
         for (const definition of editor.list()) {
           if (coordinator || !FILE_TOOLS.has(definition.id)) {
@@ -58,7 +63,7 @@ export function createPlugin(options: {
             tool.options = { ...tool.options, codemode: false }
             tool.execute = async (input, native) => {
               if (native.sessionID !== binding.sessionID) throw Error("Unbound native session")
-              return guard.execute(definition.id, native.id, input, async () => {
+              const executeGuarded = () => guard.execute(definition.id, native.id, input, async () => {
                 const result = await execute(input, native)
                 const settled = definition.id === "shell"
                   ? settleShell(binding.host, result, directory, native.signal) : result
@@ -70,13 +75,15 @@ export function createPlugin(options: {
                 }
                 return final
               }, READ_ONLY.has(definition.id))
+              return options.telemetry ? options.telemetry.tool(definition.id, native.id, executeGuarded) : executeGuarded()
             }
           })
         }
         editor.add({
           name: TASK, description: schema.description, input: schema.inputSchema,
           options: { codemode: false },
-          execute: async (arguments_, native) => guard.serial(async () => {
+          execute: async (arguments_, native) => {
+            const executeGuarded = () => guard.serial(async () => {
             if (native.sessionID !== binding.sessionID || binding.phaseComplete) throw Error("Inactive Task phase")
             await guard.admit()
             const response = await rpc("task", { operation: "task", arguments: arguments_, context })
@@ -85,7 +92,9 @@ export function createPlugin(options: {
             if (response.fact) binding.receipts.push(response.fact)
             if (response.phaseComplete) binding.phaseComplete = true
             return { content: JSON.stringify(response.result ?? response) }
-          }),
+            })
+            return options.telemetry ? options.telemetry.tool(TASK, native.id, executeGuarded) : executeGuarded()
+          },
         })
       })
       const inject = async (event: any) => {

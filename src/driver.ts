@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { createPlugin, type Binding } from "./plugin"
 import { prepare, type Rpc, type Frame } from "./protocol"
+import { telemetry } from "./telemetry"
 
 export const nativeRpc: Rpc = async (method, payload) => {
   const child = Bun.spawn([process.env.TEAMHARNESS_PYTHON || "python3", "-m", "agentteams_opencode.rpc"], {
@@ -38,7 +39,13 @@ export async function run(request: Request, rpc: Rpc = nativeRpc, check = false)
     "Trusted Matrix input:\n" + JSON.stringify(source.snapshot.input))].join("\n\n")
   const binding: Binding = { sessionID: "", host: undefined, phaseComplete: false, receipts: [] }
   let committed = false
+  const spans = check ? undefined : telemetry({ "agentteams.worker.name": process.env.AGENTTEAMS_WORKER_NAME || "",
+    "agentteams.runtime": "opencode", "agentteams.role": request.role,
+    "agentteams.task.id": request.identity.task_id || context.execution || context.completion || context.review?.[0] || context.planning?.[0] || "",
+    "agentteams.team.id": request.identity.team_id || request.team || "",
+    "agentteams.room.id": request.event?.room_id || "", "agentteams.event.id": request.event?.event_id || "" })
   const plugin = createPlugin({ rpc, context, schema: prepared.schema, identity: request.identity,
+    telemetry: spans,
     instructions: request.instructions, directory, binding,
     async beforeModel(sessionID) {
       if (committed) return
@@ -78,6 +85,7 @@ export async function run(request: Request, rpc: Rpc = nativeRpc, check = false)
     const session = await host.sessions.create({ location: { directory }, agent: "build",
       model: { providerID: "agentteams-gateway", id: request.model } })
     binding.sessionID = session.id
+    spans?.session(session.id)
     if (check) return { session_id: session.id, answer: "", phaseComplete: false }
     const interrupt = () => { void host.sessions.interrupt({ sessionID: session.id, resume: false }) }
     process.once("SIGTERM", interrupt)
@@ -87,6 +95,10 @@ export async function run(request: Request, rpc: Rpc = nativeRpc, check = false)
         metadata: { "agentteams.event_id": request.event?.event_id || "task-recovery" } })
       await host.experimental.session.wait({ sessionID: session.id })
       const messages = await host.sessions.context({ sessionID: session.id })
+      const idle = messages.findLast(message => message.type === "idle")
+      if (idle?.type === "idle" && idle.outcome !== "succeeded") {
+        throw Error("Native turn failed: " + (idle.error?.type || idle.outcome))
+      }
       const answer = messages.filter(message => message.type === "assistant").flatMap(message =>
         message.content.filter(part => part.type === "text").map(part => part.text)).join("\n")
       if (!committed) throw Error("The native turn did not admit its input")
@@ -97,6 +109,7 @@ export async function run(request: Request, rpc: Rpc = nativeRpc, check = false)
     }
   } finally {
     await host.close()
+    await spans?.close()
   }
 }
 
