@@ -63,9 +63,12 @@ export function telemetry(attributes: Record<string, string>) {
       const sse = response.headers.get("content-type")?.includes("text/event-stream")
       const reader = response.body.getReader(), decoder = new TextDecoder()
       let buffer = ""
+      let complete = false
       const inspect = (data: string) => {
+        if (data === "[DONE]") { complete = true; return }
         try {
           const value = JSON.parse(data)
+          if (Array.isArray(value.choices) && value.choices.some((choice: any) => choice.finish_reason)) complete = true
           if (value.error) end(Error("ProviderError"))
           for (const [key, count] of Object.entries({ input_tokens: value.usage?.prompt_tokens,
             output_tokens: value.usage?.completion_tokens })) {
@@ -77,7 +80,12 @@ export function telemetry(attributes: Record<string, string>) {
         async pull(controller) {
           try {
             const next = await reader.read()
-            if (next.done) { if (!sse) inspect(buffer); end(); controller.close(); return }
+            if (next.done) {
+              if (!sse) inspect(buffer)
+              end(sse && !complete ? Error("IncompleteResponse") : undefined)
+              controller.close()
+              return
+            }
             buffer += decoder.decode(next.value, { stream: true })
             if (sse) {
               const lines = buffer.split("\n")
@@ -87,7 +95,7 @@ export function telemetry(attributes: Record<string, string>) {
             controller.enqueue(next.value)
           } catch (failure) { end(failure); controller.error(failure) }
         },
-        async cancel(reason) { end(Error("Cancelled")); await reader.cancel(reason) },
+        async cancel(reason) { end(complete ? undefined : Error("Cancelled")); await reader.cancel(reason) },
       }), { status: response.status, statusText: response.statusText, headers: response.headers })
     },
     async close(failure?: unknown) {

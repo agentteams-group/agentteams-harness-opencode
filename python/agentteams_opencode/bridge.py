@@ -107,7 +107,7 @@ class Bridge:
                     if identity:
                         if identity.get("event_key"):
                             current = self.matrix._message_owned(identity)
-                            if current["execution"]["state"] != "active":
+                            if current["execution"]["state"] not in {"active", "needs_verification"}:
                                 raise RecoveryConflict("Native message execution stopped")
                         else:
                             task = self.recovery.current(identity["task_id"], identity["team_id"])
@@ -172,7 +172,15 @@ class Bridge:
             self.attempted.add(key)
             try:
                 result = self.run_native(self.recovery.resume_text({**task, "team_id": entry["team_id"], "spec": claimed["spec"]}), identity, source, notification)
-                saved, text = self.recovery.prepare_reply(task["task_id"], entry["team_id"], result["answer"])
+                try:
+                    saved, text = self.recovery.prepare_reply(task["task_id"], entry["team_id"], result["answer"])
+                except RecoveryConflict:
+                    if not result.get("phaseComplete"):
+                        raise
+                    # A verified submit may already be accepted or superseded.
+                    # Respect the fence and leave delivery to the public Task.
+                    log("inference.delivery_retired", task_id=task["task_id"])
+                    continue
                 self.deliver(identity, task["room_id"], text, saved)
             except Exception:
                 self.recovery.interrupted(task["task_id"], entry["team_id"])

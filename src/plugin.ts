@@ -47,6 +47,10 @@ export function createPlugin(options: {
   return Plugin.define({
     id: "agentteams.opencode",
     async setup(ctx) {
+      // A managed phase needs no auxiliary inference outside input admission.
+      await ctx.session.hook("title", event => {
+        event.result = "AgentTeams " + (context.execution || context.completion || context.planning?.[0] || context.role)
+      })
       await ctx.session.hook("http.request", event => {
         options.telemetry?.request(event.request, event.model.id, event.kind)
       })

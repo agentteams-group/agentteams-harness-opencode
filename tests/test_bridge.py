@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 
 from agentteams_opencode.bridge import Bridge
+from task_recovery import RecoveryConflict
 
 
 class DeliveryTests(unittest.TestCase):
@@ -60,6 +61,7 @@ class DeliveryTests(unittest.TestCase):
         identity = {"task_id": "node-1", "team_id": "team-1", "generation": 1,
                     "instance_id": "instance", "process_id": "process"}
         bridge.recovery.current.return_value = {"execution": {**identity, "state": "needs_verification"}}
+        bridge.matrix._message_owned.return_value = bridge.recovery.current.return_value
         child = Mock(returncode=0)
         child.poll.side_effect = [None, 0, 0]
         def spawn(*args, **kwargs):
@@ -71,8 +73,35 @@ class DeliveryTests(unittest.TestCase):
                  patch('agentteams_opencode.bridge.prepare_prompts', return_value=''), \
                  patch('agentteams_opencode.bridge.subprocess.Popen', side_effect=spawn), \
                  patch('agentteams_opencode.bridge.log'):
-                self.assertEqual(bridge.run_native('finish this tool', identity)['answer'], 'saved')
+                for message in (False, True):
+                    with self.subTest(message=message):
+                        child.poll.side_effect = [None, 0, 0]
+                        current = {**identity, **({'event_key': 'source-1'} if message else {})}
+                        self.assertEqual(bridge.run_native('finish this tool', current)['answer'], 'saved')
         child.wait.assert_not_called()
+
+    def test_retired_final_callback_does_not_republish_a_verified_task_phase(self):
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                bridge = self.bridge()
+                bridge.attempted = set()
+                task = {'task_id': 'node-1', 'main_task_id': 'main-1', 'task_plan_id': 'plan-1',
+                        'notifyTxn': 'assignment', 'room_id': '!room:test', 'status': 'in_progress',
+                        'execution': {'generation': 1, 'instance_id': 'instance', 'process_id': 'process',
+                                      'state': 'active', 'runtime': 'opencode'}}
+                bridge.recovery.claim.return_value = {'task': task, 'spec': 'Execute'}
+                bridge.run_native = Mock(return_value={'answer': '', 'phaseComplete': complete})
+                bridge.recovery.prepare_reply.side_effect = RecoveryConflict('no longer recoverable')
+                bridge.deliver = Mock()
+                snapshot = {'tasks': [{'team_id': 'team-1', 'task': task}]}
+                if complete:
+                    bridge.tasks(snapshot, [])
+                    bridge.recovery.interrupted.assert_not_called()
+                else:
+                    with self.assertRaises(RecoveryConflict):
+                        bridge.tasks(snapshot, [])
+                    bridge.recovery.interrupted.assert_called_once()
+                bridge.deliver.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 env:
-  CORE_REF: 5cfff76cc474d503ffd816e12af1a43e9d2e446a
+  CORE_REF: 7a0d2aa7f01f35565bd0205c72562eb7c986182d
 jobs:
   native:
     runs-on: ubuntu-24.04

@@ -25,6 +25,8 @@ test("OpenCode's native provider exports generation spans and real wire usage", 
     const exported = batches.flatMap(b => b.resourceSpans).flatMap(r => r.scopeSpans).flatMap(s => s.spans)
     const models = exported.filter(s => s.name === "chat fixture")
     expect(models.length).toBeGreaterThan(0)
+    expect(models.every(s => s.status.code !== 2)).toBe(true)
+    expect(models.some(s => s.attributes.some((a: any) => a.key === "agentteams.request.kind" && a.value.stringValue === "title"))).toBe(false)
     expect(models.some(s => s.attributes.some((a: any) => a.key === "gen_ai.usage.input_tokens" && Number(a.value.intValue) === 17))).toBe(true)
     expect(JSON.stringify(exported)).toContain(result.session_id)
     expect(JSON.stringify(exported)).not.toContain("PRIVATE INPUT")
