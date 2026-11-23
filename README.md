@@ -14,7 +14,7 @@ The Controller retains Task authority, candidate review and final delivery.
 - OpenCode SDK and plugin: **2.4.1**, pinned in `bun.lock`.
 - Bun: **1.3.3**, exercised by the native integration tests.
 - Python: **3.11 or newer**.
-- AgentTeams Core: **`5cfff76cc474d503ffd816e12af1a43e9d2e446a`**
+- AgentTeams Core: **`7a0d2aa7f01f35565bd0205c72562eb7c986182d`**
   ([integration branch](https://github.com/agentscope-ai/AgentTeams/tree/codex/opencode-harness-20261124)).
 - The matching Controller image supplies `agt` and role assets; Core's pinned
   DeepSeek submodule supplies the existing Matrix transport helpers unchanged.
@@ -23,7 +23,7 @@ The Controller retains Task authority, candidate review and final delivery.
 
 ```sh
 git clone https://github.com/agentscope-ai/AgentTeams.git core
-git -C core checkout 5cfff76cc474d503ffd816e12af1a43e9d2e446a
+git -C core checkout 7a0d2aa7f01f35565bd0205c72562eb7c986182d
 git -C core submodule update --init deepseek-harness
 make -C core build-agentteams-controller LOCAL_CONTROLLER=agentteams/controller:opencode
 docker build --build-context at=./core \
@@ -81,7 +81,16 @@ model quality, deployment or full admission.
 
 See [the acceptance ledger](docs/acceptance.md). The required real-model simple
 10/10 and complex 10/10 runs, cross-Harness switching and return-switch, process
-interruption drills, and Collector-visible Trace evidence remain open.
+and interruption drills remain open. Real Qwen3.6 Plus native business tasks
+passed the public CSV (23 checks) and settlement (90 checks) oracles. Actual
+model/tool spans, token usage and disabled content capture have been read back
+from Collector/Langfuse and the Dashboard. These individual runs do not replace
+the full admission matrix.
+
+One full Human → Manager → OpenCode Leader/two Workers → original Human room
+request passed final file/hash verification and all 23 independent CSV checks,
+with no operator intervention. It took 880.125 seconds and failed the 300-second
+performance target. Two earlier failed attempts are retained in the ledger.
 
 Manager, Matrix E2EE, Code Mode, nested subagents and native patch are not enabled.
 Additional MCP tool projection, interactive Matrix approvals and standalone chat
