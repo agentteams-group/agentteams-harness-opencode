@@ -81,5 +81,14 @@ def restore(payload, recovery):
                 raise ValueError("Native file checkpoint digest mismatch")
             recovery.tools_current(payload["identity"])
             target.parent.mkdir(parents=True, exist_ok=True)
-            frozen.replace(target)
+            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as staging:
+                pending = Path(staging.name)
+                try:
+                    staging.write(data)
+                    staging.flush()
+                    os.fsync(staging.fileno())
+                    staging.close()
+                    pending.replace(target)
+                finally:
+                    pending.unlink(missing_ok=True)
     return True

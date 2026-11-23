@@ -67,7 +67,7 @@ an interactive OpenCode client. `AGENTTEAMS_TURN_TIMEOUT_S` defaults to 900.
 ```sh
 bun install --frozen-lockfile --registry https://registry.npmjs.org
 bun run typecheck
-bun test
+bun run test
 PYTHONPATH=python:./core/shared/lib python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 

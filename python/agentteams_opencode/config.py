@@ -13,6 +13,8 @@ def load(path):
     role = {"team_leader": "leader", "standalone": "worker"}.get(role, role)
     if role not in {"worker", "leader"}:
         raise ValueError("OpenCode supports Worker and Leader roles; Manager is not implemented")
+    if record.get("desired", {}).get("mcpServers"):
+        raise ValueError("Additional MCP projection is not supported by this candidate")
     os.environ["AGENTTEAMS_AGENT_ROLE"] = role
     if record.get("team", {}).get("name"):
         os.environ["AGENTTEAMS_TEAM_NAME"] = record["team"]["name"]
