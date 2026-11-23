@@ -126,6 +126,12 @@ class Bridge:
     def deliver(self, identity, room, text, saved):
         task = bool(identity.get("task_id"))
         execution = saved["execution"] if "execution" in saved else saved["task"]["execution"]
+        if execution.get("checkpoint", {}).get("delivery") == "delivered":
+            return saved
+        if task:
+            if execution["process_id"] != identity["process_id"] or execution["instance_id"] != identity["instance_id"]:
+                raise RecoveryConflict("Saved reply belongs to another native process")
+            identity = {**identity, "generation": execution["generation"]}
         def bind(checkpoint):
             if task:
                 return self.recovery.checkpoint(identity["task_id"], identity["team_id"], checkpoint, expected_identity=identity)

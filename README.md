@@ -42,7 +42,7 @@ the shared runtime supervisor to initialize `AGENTTEAMS_PROCESS_ID`, and reports
 ready only after SDK startup plus Matrix and Task discovery.
 
 Shell execution requires the explicit `AGENTTEAMS_YOLO=1` launch policy. Without
-it, shell is denied; file tools remain scoped to the prepared Task directories.
+it, shell is denied; Task file writes remain scoped to the prepared directories.
 The headless process does not leave invisible permission prompts waiting for
 an interactive OpenCode client. `AGENTTEAMS_TURN_TIMEOUT_S` defaults to 900.
 
@@ -68,7 +68,7 @@ an interactive OpenCode client. `AGENTTEAMS_TURN_TIMEOUT_S` defaults to 900.
 bun install --frozen-lockfile --registry https://registry.npmjs.org
 bun run typecheck
 bun run test
-PYTHONPATH=python:./core/shared/lib python3 -m unittest discover -s tests -p 'test_*.py'
+PYTHONPATH=python:./core/shared/lib:./core/deepseek-harness/scripts python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The native tests run the real OpenCode SDK against a deterministic local model
