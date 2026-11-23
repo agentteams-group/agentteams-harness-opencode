@@ -47,8 +47,11 @@ export function createPlugin(options: {
   return Plugin.define({
     id: "agentteams.opencode",
     async setup(ctx) {
-      await ctx.aisdk.hook("language", event => {
-        if (event.language && options.telemetry) event.language = options.telemetry.language(event.language)
+      await ctx.session.hook("http.request", event => {
+        options.telemetry?.request(event.request, event.model.id, event.kind)
+      })
+      await ctx.session.hook("http.response", event => {
+        if (options.telemetry) event.response = options.telemetry.response(event.request, event.response)
       })
       await ctx.tool.transform(editor => {
         for (const definition of editor.list()) {

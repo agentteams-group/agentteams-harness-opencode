@@ -14,15 +14,11 @@ test("exports actual streaming usage and tool outcomes without input content", a
     const spans = telemetry({ "agentteams.worker.name": "worker-proof", "agentteams.runtime": "opencode",
       "agentteams.task.id": "task-proof" })!
     spans.session("native-session")
-    const native = { modelId: "actual-model", async doStream() {
-      return { stream: new ReadableStream({ start(controller) {
-        controller.enqueue({ type: "text-delta", delta: "PRIVATE CONTENT" })
-        controller.enqueue({ type: "finish", usage: { inputTokens: { total: 7 }, outputTokens: { total: 3 } } })
-        controller.close()
-      } }) }
-    } }
-    const result = await spans.language(native).doStream({ prompt: "PRIVATE CONTENT" })
-    for await (const _ of result.stream) { /* Consume the real stream. */ }
+    const request = new Request("http://model.invalid/chat/completions")
+    spans.request(request, "actual-model", "primary")
+    const result = spans.response(request, new Response('data: {"content":"PRIVATE CONTENT"}\n\ndata: {"usage":{"prompt_tokens":7,"completion_tokens":3}}\n\ndata: [DONE]\n\n',
+      { headers: { "content-type": "text/event-stream" } }))
+    await result.text()
     expect(await spans.tool("write", "native-call", async () => "PRIVATE CONTENT")).toBe("PRIVATE CONTENT")
     await expect(spans.tool("shell", "failed-call", async () => { throw Error("PRIVATE CONTENT") })).rejects.toThrow()
     await spans.close()

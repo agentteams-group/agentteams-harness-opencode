@@ -81,6 +81,7 @@ export async function run(request: Request, rpc: Rpc = nativeRpc, check = false)
     config: { directory: nativeRoot, project: false, claude: false, content: JSON.stringify(config) },
     models: { fetch: false }, fs: { filewatcher: false }, plugins: [plugin] })
   binding.host = host
+  let failed: unknown
   try {
     const session = await host.sessions.create({ location: { directory }, agent: "build",
       model: { providerID: "agentteams-gateway", id: request.model } })
@@ -107,9 +108,12 @@ export async function run(request: Request, rpc: Rpc = nativeRpc, check = false)
       process.removeListener("SIGTERM", interrupt)
       process.removeListener("SIGINT", interrupt)
     }
+  } catch (error) {
+    failed = error
+    throw error
   } finally {
     await host.close()
-    await spans?.close()
+    await spans?.close(failed)
   }
 }
 

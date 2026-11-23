@@ -32,6 +32,7 @@ export function telemetry(attributes: Record<string, string>) {
   const error = (span: Span, failure: unknown) => {
     span.setStatus({ code: SpanStatusCode.ERROR, message: failure instanceof Error ? failure.name : "Error" })
   }
+  const pending = new Map<Request, { span: Span; end: (failure?: unknown) => void }>()
   return {
     session(id: string) {
       attributes["session.id"] = id
@@ -43,43 +44,58 @@ export function telemetry(attributes: Record<string, string>) {
       const span = start(name, { "langfuse.observation.type": "tool", "tool.name": name, "tool.call.id": id })
       try { return await execute() } catch (failure) { error(span, failure); throw failure } finally { span.end() }
     },
-    language(model: any) {
-      const invoke = async (method: "doStream" | "doGenerate", options: any) => {
-        const span = start("chat " + model.modelId, { "langfuse.observation.type": "generation",
-          "gen_ai.operation.name": "chat", "gen_ai.request.model": model.modelId })
-        let ended = false
-        const end = (failure?: unknown) => { if (ended) return; ended = true; if (failure) error(span, failure); span.end() }
-        const usage = (value: any) => {
-          for (const [key, count] of Object.entries({ input_tokens: value?.inputTokens?.total,
-            output_tokens: value?.outputTokens?.total })) {
+    request(request: Request, model: string, kind: string) {
+      const span = start("chat " + model, { "langfuse.observation.type": "generation",
+        "gen_ai.operation.name": "chat", "gen_ai.request.model": model, "agentteams.request.kind": kind })
+      const end = (failure?: unknown) => {
+        if (!pending.delete(request)) return
+        if (failure) error(span, failure)
+        span.end()
+      }
+      pending.set(request, { span, end })
+    },
+    response(request: Request, response: Response) {
+      const current = pending.get(request)
+      if (!current) return response
+      const { span, end } = current
+      span.setAttribute("http.response.status_code", response.status)
+      if (!response.ok || !response.body) { end(response.ok ? undefined : Error("HTTPError")); return response }
+      const sse = response.headers.get("content-type")?.includes("text/event-stream")
+      const reader = response.body.getReader(), decoder = new TextDecoder()
+      let buffer = ""
+      const inspect = (data: string) => {
+        try {
+          const value = JSON.parse(data)
+          if (value.error) end(Error("ProviderError"))
+          for (const [key, count] of Object.entries({ input_tokens: value.usage?.prompt_tokens,
+            output_tokens: value.usage?.completion_tokens })) {
             if (typeof count === "number") span.setAttribute("gen_ai.usage." + key, count)
           }
-        }
-        try {
-          const result = await model[method](options)
-          if (method === "doGenerate") { usage(result.usage); end(); return result }
-          const reader = result.stream.getReader()
-          return { ...result, stream: new ReadableStream({
-            async pull(controller) {
-              try {
-                const next = await reader.read()
-                if (next.done) { end(); controller.close(); return }
-                if (next.value.type === "finish") usage(next.value.usage)
-                if (next.value.type === "error") end(next.value.error)
-                controller.enqueue(next.value)
-              } catch (failure) { end(failure); controller.error(failure) }
-            },
-            async cancel(reason) { end(Error("Cancelled")); await reader.cancel(reason) },
-          }) }
-        } catch (failure) { end(failure); throw failure }
+        } catch { /* The native provider remains responsible for wire validation. */ }
       }
-      return new Proxy(model, { get(target, key) {
-        if (key === "doStream" || key === "doGenerate") return (options: any) => invoke(key, options)
-        const value = Reflect.get(target, key)
-        return typeof value === "function" ? value.bind(target) : value
-      } })
+      return new Response(new ReadableStream({
+        async pull(controller) {
+          try {
+            const next = await reader.read()
+            if (next.done) { if (!sse) inspect(buffer); end(); controller.close(); return }
+            buffer += decoder.decode(next.value, { stream: true })
+            if (sse) {
+              const lines = buffer.split("\n")
+              buffer = lines.pop()!
+              for (const line of lines) if (line.startsWith("data:")) inspect(line.slice(5).trim())
+            }
+            controller.enqueue(next.value)
+          } catch (failure) { end(failure); controller.error(failure) }
+        },
+        async cancel(reason) { end(Error("Cancelled")); await reader.cancel(reason) },
+      }), { status: response.status, statusText: response.statusText, headers: response.headers })
     },
-    async close(failure?: unknown) { if (failure) error(root, failure); root.end(); await provider.shutdown() },
+    async close(failure?: unknown) {
+      for (const { end } of pending.values()) end(failure || Error("IncompleteRequest"))
+      if (failure) error(root, failure)
+      root.end()
+      await provider.shutdown()
+    },
   }
 }
 
