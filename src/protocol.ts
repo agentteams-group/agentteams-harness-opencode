@@ -36,10 +36,13 @@ export class Guard {
   private tail: Promise<unknown> = Promise.resolve()
   private uncertain = false
 
-  constructor(private rpc: Rpc, private identity: Record<string, any>, private context: Record<string, any>) {}
+  constructor(private rpc: Rpc, private identity: Record<string, any>, private context: Record<string, any>,
+    private measure?: <T>(name: string, execute: () => Promise<T>) => Promise<T>) {}
 
   serial<T>(run: () => Promise<T>): Promise<T> {
-    const result = this.tail.then(() => {
+    const previous = this.tail
+    const ready = this.measure ? this.measure("opencode.tool.queue", () => previous.then(() => {})) : previous
+    const result = ready.then(() => {
       if (this.uncertain) throw Error("Native operation requires authoritative verification")
       return run()
     })

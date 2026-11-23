@@ -62,6 +62,18 @@ class FileRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symbolic link"):
             files.persist(self.payload, Recovery())
 
+    def test_overlapping_scratch_snapshot_uploads_identical_content_once(self):
+        scratch = Path(self.payload['output']) / '.scratch'
+        scratch.mkdir()
+        (scratch / 'input.csv').write_text('id,amount\na,1.00\n')
+        self.payload['scratch'] = str(scratch)
+        with patch.dict('os.environ', {'AGENTTEAMS_STORAGE_PREFIX': 'store'}), \
+             patch.object(files, 'transfer', side_effect=self.transfer) as transfer:
+            manifest = files.persist(self.payload, Recovery())
+        self.assertEqual({item['area'] for item in manifest}, {'output', 'scratch'})
+        self.assertEqual(manifest[0]['key'], manifest[1]['key'])
+        self.assertEqual(transfer.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

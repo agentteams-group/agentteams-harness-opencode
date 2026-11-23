@@ -6,7 +6,7 @@ FROM ${MC_IMAGE} AS mc
 FROM oven/bun:1.3.3-debian
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git jq python3 python3-venv tini \
+    ca-certificates curl git jq python3 python3-venv ripgrep tini \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=controller /usr/local/bin/agt /usr/local/bin/agt
 COPY --from=controller /opt/agentteams/agent/ /opt/agentteams/agent/

@@ -24,6 +24,7 @@ def persist(payload, recovery):
     identity = payload["identity"]
     recovery.tools_current(identity, verification=True)
     manifest = []
+    uploaded = set()
     for area in ("output", "scratch"):
         root = Path(payload[area]).resolve()
         for path in sorted(root.rglob("*")):
@@ -35,10 +36,12 @@ def persist(payload, recovery):
             data = path.read_bytes()
             digest = hashlib.sha256(data).hexdigest()
             key = root_key(identity) + "file-" + digest
-            with tempfile.NamedTemporaryFile() as frozen:
-                frozen.write(data)
-                frozen.flush()
-                transfer(frozen.name, remote(key))
+            if key not in uploaded:
+                with tempfile.NamedTemporaryFile() as frozen:
+                    frozen.write(data)
+                    frozen.flush()
+                    transfer(frozen.name, remote(key))
+                uploaded.add(key)
             manifest.append({"area": area, "name": path.relative_to(root).as_posix(),
                              "key": key, "sha256": digest, "size": len(data)})
     recovery.tools_current(identity, verification=True)

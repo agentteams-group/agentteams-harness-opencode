@@ -64,6 +64,10 @@ This is one successful request following two retained failures, not 10/10
 repeatability. The local Task protocol, byte-level delivery, business behavior,
 performance and formal admission verdicts remain separate.
 
+See the [latency investigation](performance-investigation.md) for the subsequent
+packaging fix, corrected timing interpretation and scoped regressions. The old
+full-Team result is not reused as a certification run for the changed candidate.
+
 Protocol success and performance must be reported separately, with the original
 attempts retained. Record Core/Harness SHA, actual image digest, model and role
 combination, source Matrix event, Task, native session/call and final attachment

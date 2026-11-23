@@ -100,11 +100,15 @@ class Bridge:
             child.stdin.write(json.dumps(request))
             child.stdin.close()
             deadline = time.monotonic() + int(os.getenv("AGENTTEAMS_TURN_TIMEOUT_S", "900"))
+            next_ownership_check = started
             try:
                 while child.poll() is None:
                     if self.stop.wait(0.25) or time.monotonic() >= deadline:
                         raise InterruptedError("Native execution stopped")
-                    if identity:
+                    if identity and time.monotonic() >= next_ownership_check:
+                        # Native effects still check ownership immediately;
+                        # this parent poll only detects a replaced idle turn.
+                        next_ownership_check = time.monotonic() + 1
                         if identity.get("event_key"):
                             current = self.matrix._message_owned(identity)
                             if current["execution"]["state"] not in {"active", "needs_verification"}:

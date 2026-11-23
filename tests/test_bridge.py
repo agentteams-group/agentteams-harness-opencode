@@ -103,6 +103,37 @@ class DeliveryTests(unittest.TestCase):
                     bridge.recovery.interrupted.assert_called_once()
                 bridge.deliver.assert_not_called()
 
+    def test_parent_polls_ownership_once_per_second_and_still_stops_a_replaced_process(self):
+        bridge = self.bridge()
+        bridge.record, bridge.native = {}, {"role": "worker"}
+        bridge.stop = Mock()
+        clock = [0.0]
+        def wait(seconds):
+            clock[0] += seconds
+            return False
+        bridge.stop.wait.side_effect = wait
+        identity = {"task_id": "node-1", "team_id": "team-1", "generation": 1,
+                    "instance_id": "instance", "process_id": "process"}
+        checks = []
+        def current(*args):
+            checks.append(clock[0])
+            return {"execution": {**identity, "state": "active", "generation": 2 if len(checks) == 3 else 1}}
+        bridge.recovery.current.side_effect = current
+        child = Mock(returncode=None, pid=123)
+        child.poll.return_value = None
+        with tempfile.TemporaryDirectory() as folder:
+            bridge.home = bridge.workspace = Path(folder)
+            with patch.dict(os.environ, {"AGENTTEAMS_PLUGIN_DIR": folder, "OPENCODE_HARNESS_DIR": folder}), \
+                 patch('agentteams_opencode.bridge.prepare_prompts', return_value=''), \
+                 patch('agentteams_opencode.bridge.subprocess.Popen', return_value=child), \
+                 patch('agentteams_opencode.bridge.time.monotonic', side_effect=lambda: clock[0]), \
+                 patch('agentteams_opencode.bridge.os.killpg') as kill, \
+                 patch('agentteams_opencode.bridge.log'):
+                with self.assertRaises(RecoveryConflict):
+                    bridge.run_native('continue', identity)
+                kill.assert_called_once()
+        self.assertEqual(checks, [0.25, 1.25, 2.25])
+
 
 if __name__ == "__main__":
     unittest.main()

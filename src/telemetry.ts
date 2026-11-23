@@ -3,6 +3,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import { BasicTracerProvider, BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
 import { randomUUID } from "node:crypto"
+import { AsyncLocalStorage } from "node:async_hooks"
 
 // Export only timings, identities and usage. Prompts, tool arguments, results
 // and credentials never become span attributes, even with content capture on.
@@ -28,11 +29,17 @@ export function telemetry(attributes: Record<string, string>) {
   const tracer = provider.getTracer("agentteams.opencode", "0.1.0")
   const root = tracer.startSpan("opencode.turn", { attributes: fields() }, ROOT_CONTEXT)
   const parent = trace.setSpan(ROOT_CONTEXT, root)
-  const start = (name: string, attrs: Record<string, string>) => tracer.startSpan(name, { attributes: { ...fields(), ...attrs } }, parent)
+  const active = new AsyncLocalStorage<Span>()
+  const start = (name: string, attrs: Record<string, string>) => tracer.startSpan(name,
+    { attributes: { ...fields(), ...attrs } }, trace.setSpan(parent, active.getStore() || root))
   const error = (span: Span, failure: unknown) => {
     span.setStatus({ code: SpanStatusCode.ERROR, message: failure instanceof Error ? failure.name : "Error" })
   }
   const pending = new Map<Request, { span: Span; end: (failure?: unknown) => void }>()
+  const step = async <T>(name: string, attrs: Record<string, string>, execute: () => Promise<T>): Promise<T> => {
+    const span = start(name, attrs)
+    try { return await active.run(span, execute) } catch (failure) { error(span, failure); throw failure } finally { span.end() }
+  }
   return {
     session(id: string) {
       attributes["session.id"] = id
@@ -40,9 +47,9 @@ export function telemetry(attributes: Record<string, string>) {
       attributes["agentteams.session.id"] = id
       root.setAttributes(fields())
     },
-    async tool<T>(name: string, id: string, execute: () => Promise<T>) {
-      const span = start(name, { "langfuse.observation.type": "tool", "tool.name": name, "tool.call.id": id })
-      try { return await execute() } catch (failure) { error(span, failure); throw failure } finally { span.end() }
+    step,
+    tool<T>(name: string, id: string, execute: () => Promise<T>) {
+      return step(name, { "langfuse.observation.type": "tool", "tool.name": name, "tool.call.id": id }, execute)
     },
     request(request: Request, model: string, kind: string) {
       const span = start("chat " + model, { "langfuse.observation.type": "generation",

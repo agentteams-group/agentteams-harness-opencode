@@ -44,6 +44,11 @@ export async function run(request: Request, rpc: Rpc = nativeRpc, check = false)
     "agentteams.task.id": request.identity.task_id || context.execution || context.completion || context.review?.[0] || context.planning?.[0] || "",
     "agentteams.team.id": request.identity.team_id || request.team || "",
     "agentteams.room.id": request.event?.room_id || "", "agentteams.event.id": request.event?.event_id || "" })
+  if (spans) {
+    const bridge = rpc
+    rpc = (method, payload) => spans.step("opencode.rpc." + method,
+      { "agentteams.rpc.operation": String(payload.action || payload.operation || "") }, () => bridge(method, payload))
+  }
   const plugin = createPlugin({ rpc, context, schema: prepared.schema, identity: request.identity,
     telemetry: spans,
     instructions: request.instructions, directory, binding,

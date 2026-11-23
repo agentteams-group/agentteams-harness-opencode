@@ -42,7 +42,9 @@ export function createPlugin(options: {
   telemetry?: Telemetry
 }) {
   const { rpc, context, schema, identity, instructions, directory, binding } = options
-  const guard = new Guard(rpc, identity, context)
+  const measure = <T>(name: string, execute: () => Promise<T>) => options.telemetry
+    ? options.telemetry.step(name, {}, execute) : execute()
+  const guard = new Guard(rpc, identity, context, options.telemetry ? measure : undefined)
   const coordinator = Boolean(context.planning || context.review || context.completion)
   return Plugin.define({
     id: "agentteams.opencode",
@@ -71,10 +73,11 @@ export function createPlugin(options: {
             tool.execute = async (input, native) => {
               if (native.sessionID !== binding.sessionID) throw Error("Unbound native session")
               const executeGuarded = () => guard.execute(definition.id, native.id, input, async () => {
-                const result = await execute(input, native)
-                const settled = definition.id === "shell"
-                  ? settleShell(binding.host, result, directory, native.signal) : result
-                const final = await settled
+                const final = await measure("opencode.native." + definition.id, async () => {
+                  const result = await execute(input, native)
+                  return definition.id === "shell"
+                    ? measure("opencode.native.shell.wait", () => settleShell(binding.host, result, directory, native.signal)) : result
+                })
                 if (context.execution && !READ_ONLY.has(definition.id)) {
                   const files = await rpc("recovery", { action: "persist_outputs", identity,
                     output: context.context.outputDirectory, scratch: context.context.scratchDirectory })
