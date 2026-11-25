@@ -34,4 +34,8 @@ ENV PATH="/opt/venv/opencode/bin:${PATH}" \
     OPENCODE_HARNESS_DIR=/opt/agentteams/opencode \
     AGENTTEAMS_OTEL_RUNTIME=opencode
 EXPOSE 8088
+COPY health_adapter.py /opt/agentteams/health_adapter.py
+RUN printf '#!/bin/sh\nexec /opt/venv/opencode/bin/python3 /opt/agentteams/health_adapter.py "$@"\n' > /opt/agentteams/harness-health \
+    && chmod 0755 /opt/agentteams/harness-health
+
 ENTRYPOINT ["/usr/bin/tini", "--", "bash", "/opt/agentteams/entrypoint.sh"]

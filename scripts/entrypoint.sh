@@ -32,4 +32,7 @@ for attempt in $(seq 1 12); do
     fi
     sleep 5
 done
+if [ -n "${AGENTTEAMS_STORAGE_PREFIX:-}" ]; then
+    python3 /opt/agentteams/scripts/lib/harness_health.py --runtime opencode --member "${AGENTTEAMS_WORKER_NAME}" --parent "$$" &
+fi
 exec python3 -m agentteams_opencode.bridge
